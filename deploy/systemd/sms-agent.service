@@ -1,0 +1,16 @@
+[Unit]
+Description=SMS Resource Monitoring Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/workspace/sms/agent
+EnvironmentFile=/etc/sms-agent/sms-agent.env
+ExecStart=/workspace/sms/agent/.venv/bin/python /workspace/sms/agent/sms_agent.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

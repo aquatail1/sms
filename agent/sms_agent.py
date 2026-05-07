@@ -10,12 +10,10 @@ retried on the next successful network window.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import platform
 import socket
-import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,21 +22,6 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID
-
-if importlib.util.find_spec("psutil") is None:
-    local_venv_python = Path(__file__).resolve().parent / ".venv" / "bin" / "python"
-    if local_venv_python.exists() and Path(sys.executable).resolve() != local_venv_python.resolve():
-        os.execv(str(local_venv_python), [str(local_venv_python), *sys.argv])
-    sys.exit(
-        "psutil 패키지가 설치되어 있지 않습니다. 다음 명령으로 Agent 의존성을 먼저 설치하세요:\n"
-        "  cd agent\n"
-        "  ./install_ubuntu.sh\n"
-        "  ./sms_agent.py --once\n\n"
-        "수동 설치를 원하면 다음 명령을 사용하세요:\n"
-        "  python3 -m venv .venv\n"
-        "  source .venv/bin/activate\n"
-        "  pip install -r requirements.txt"
-    )
 
 import psutil
 
@@ -203,39 +186,26 @@ class Spool:
         return [json.loads(line) for line in lines]
 
 
-def send_batch(client: ApiClient, auth: dict[str, str], metrics: list[dict[str, Any]]) -> dict[str, Any]:
-    return client.post_json(
+def send_batch(client: ApiClient, auth: dict[str, str], metrics: list[dict[str, Any]]) -> None:
+    client.post_json(
         "/api/v1/metrics/batch",
         {"agent_id": auth["agent_id"], "metrics": metrics},
         token=auth["token"],
     )
 
 
-def run_once(config: AgentConfig, client: ApiClient, collector: MetricCollector, spool: Spool) -> dict[str, Any]:
+def run_once(config: AgentConfig, client: ApiClient, collector: MetricCollector, spool: Spool) -> None:
     auth = ensure_registered(config, client)
     pending_batches = spool.drain()
     current_batch = {"metrics": [collector.collect()]}
     all_batches = [*pending_batches, current_batch]
 
-    accepted_total = 0
-    sent_batches = 0
-    last_metric = current_batch["metrics"][-1]
-
     for index, batch in enumerate(all_batches):
         try:
-            response = send_batch(client, auth, batch["metrics"])
-            accepted_total += int(response.get("accepted", len(batch["metrics"])))
-            sent_batches += 1
+            send_batch(client, auth, batch["metrics"])
         except (HTTPError, URLError, TimeoutError, OSError, ValueError):
             spool.enqueue_many(all_batches[index:])
             raise
-
-    return {
-        "agent_id": auth["agent_id"],
-        "accepted": accepted_total,
-        "sent_batches": sent_batches,
-        "metric": last_metric,
-    }
 
 
 def run_forever(config: AgentConfig) -> None:
@@ -264,8 +234,7 @@ def main() -> None:
     collector = MetricCollector()
     spool = Spool(config.spool_path)
     if args.once:
-        result = run_once(config, client, collector, spool)
-        print(json.dumps(result, indent=2, sort_keys=True), flush=True)
+        run_once(config, client, collector, spool)
         return
     run_forever(config)
 
